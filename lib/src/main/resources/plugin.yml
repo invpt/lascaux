@@ -1,0 +1,3 @@
+main: lascaux.LascauxPlugin
+name: Lascaux
+version: 1.0
