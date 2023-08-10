@@ -4,10 +4,20 @@
 package lascaux
 
 import java.io.File
+import java.io.PrintStream
+import java.util.jar.JarFile
+import java.nio.file.FileSystems
+import java.nio.file.Paths
+import java.nio.file.Files
+import java.nio.file.OpenOption
+import java.nio.file.StandardOpenOption
+import java.net.URI
 
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
+import org.jetbrains.kotlin.cli.common.messages.MessageRenderer
+import org.jetbrains.kotlin.cli.common.messages.PrintingMessageCollector
 import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
 import org.jetbrains.kotlin.config.CompilerConfiguration
@@ -17,12 +27,29 @@ import org.bukkit.plugin.java.JavaPlugin
 
 public class LascauxPlugin : JavaPlugin() {
     override fun onEnable() {
-        /*logger.info("Loading stuff!")
         val dataFolderPath = getDataFolder().path
-        val pl = Bukkit.getPluginManager().loadPlugin(File(dataFolderPath + "/thing.jar"))
-        if (pl != null) {
-            Bukkit.getPluginManager().enablePlugin(pl)
+        val compiler = K2JVMCompiler()
+        val args = K2JVMCompilerArguments().apply {
+            freeArgs = listOf(dataFolderPath + "/code.kt")
+            destination = dataFolderPath + "/code.jar"
+            kotlinHome = dataFolderPath
+            classpath = dataFolderPath + "/kotlin-reflect.jar:" + dataFolderPath + "/kotlin-script-runtime.jar:" + dataFolderPath + "/kotlin-stdlib.jar:" + dataFolderPath + "/spigot-api.jar"
+            noStdlib = true
         }
-        logger.info("Done!")*/
+        
+        val errorPs = PrintStream(System.err)
+        compiler.execImpl(PrintingMessageCollector(errorPs, MessageRenderer.PLAIN_RELATIVE_PATHS, args.verbose), Services.EMPTY, args)
+
+        val fs = FileSystems.newFileSystem(URI.create("jar:file:" + Paths.get(dataFolderPath).toAbsolutePath().toString() + "/code.jar"), mapOf<String, String>())
+        fs.use {
+            Files.write(fs.getPath("/plugin.yml"), """
+                main: testplugin.TestPlugin
+                name: TestPlugin
+                version: 1.0
+            """.trimMargin().toByteArray(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+        }
+
+        val pl = Bukkit.getPluginManager().loadPlugin(File(dataFolderPath + "/code.jar"))
+        Bukkit.getPluginManager().enablePlugin(pl!!)
     }
 }
