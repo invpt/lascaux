@@ -25,6 +25,25 @@ import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.bukkit.Bukkit
 import org.bukkit.plugin.java.JavaPlugin
 
+import org.eclipse.aether.RepositorySystem
+import org.eclipse.aether.RepositorySystemSession
+import org.eclipse.aether.artifact.DefaultArtifact
+import org.eclipse.aether.collection.CollectRequest
+import org.eclipse.aether.repository.RemoteRepository
+import org.eclipse.aether.resolution.DependencyRequest
+import org.eclipse.aether.util.repository.AuthenticationBuilder
+import org.eclipse.aether.util.artifact.JavaScopes
+import org.eclipse.aether.DefaultRepositorySystemSession
+import org.eclipse.aether.connector.basic.BasicRepositoryConnectorFactory
+import org.eclipse.aether.spi.connector.RepositoryConnectorFactory
+import org.eclipse.aether.transport.file.FileTransporterFactory
+import org.eclipse.aether.transport.http.HttpTransporterFactory
+import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.eclipse.aether.graph.Dependency
+import org.eclipse.aether.graph.DependencyNode
+import org.eclipse.aether.graph.DependencyFilter
+import org.eclipse.aether.repository.LocalRepository
+
 public class LascauxPlugin : JavaPlugin() {
     override fun onEnable() {
         val dataFolderPath = getDataFolder().path
@@ -51,5 +70,27 @@ public class LascauxPlugin : JavaPlugin() {
 
         val pl = Bukkit.getPluginManager().loadPlugin(File(dataFolderPath + "/code.jar"))
         Bukkit.getPluginManager().enablePlugin(pl!!)
+
+        resolveDependencies()
     }
+}
+
+fun resolveDependencies(): List<File> {
+    val system = RepositorySystemSupplier().get()
+
+    val session = DefaultRepositorySystemSession().setSystemProperties(System.getProperties())
+    session.localRepositoryManager = system.newLocalRepositoryManager(session, LocalRepository("./repo"))
+
+    val remoteRepo = RemoteRepository.Builder("central", "default", "https://repo1.maven.org/maven2").build()
+
+    val artifact = DefaultArtifact("com.google.code.gson:gson:2.10.1")
+
+    val collectRequest = CollectRequest().setRoot(Dependency(artifact, "compile")).addRepository(remoteRepo)
+    val dependencyRequest = DependencyRequest(collectRequest) { node, parents ->
+        node.dependency.scope == "compile" && parents.map { p -> p.dependency.scope == "compile" }.fold(true) { a, b -> a && b }
+    }
+
+    val dependencyResult = system.resolveDependencies(session, dependencyRequest)
+
+    return dependencyResult.artifactResults.map { it.artifact.file }
 }

@@ -10,6 +10,14 @@ repositories {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-compiler:1.9.0"
+    implementation 'org.apache.maven.resolver:maven-resolver-api:1.9.15'
+    implementation 'org.apache.maven.resolver:maven-resolver-spi:1.9.15'
+    implementation 'org.apache.maven.resolver:maven-resolver-supplier:1.9.15'
+    implementation 'org.apache.maven.resolver:maven-resolver-impl:1.9.15'
+    implementation 'org.apache.maven.resolver:maven-resolver-transport-file:1.9.15'
+    implementation 'org.apache.maven.resolver:maven-resolver-transport-http:1.9.15'
+    implementation 'org.apache.maven.resolver:maven-resolver-connector-basic:1.9.15'
+    implementation 'org.slf4j:slf4j-simple:2.0.7'
     compileOnly 'org.spigotmc:spigot-api:1.20.1-R0.1-SNAPSHOT'
 }
 
@@ -17,4 +25,9 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
+}
+
+shadowJar {
+   relocate 'org.eclipse.aether', 'lascaux_shadow.aether'
+   relocate 'org.apache.maven', 'lascaux_shadow.maven'
 }

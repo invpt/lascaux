@@ -1,3 +1,4 @@
 main: lascaux.LascauxPlugin
 name: Lascaux
 version: 1.0
+api-version: '1.20'
