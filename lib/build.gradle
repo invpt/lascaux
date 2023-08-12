@@ -28,6 +28,6 @@ java {
 }
 
 shadowJar {
-   relocate 'org.eclipse.aether', 'lascaux_shadow.aether'
-   relocate 'org.apache.maven', 'lascaux_shadow.maven'
+   relocate 'org.eclipse.aether', 'dev.lascaux.shadow.aether'
+   relocate 'org.apache.maven', 'dev.lascaux.shadow.maven'
 }
