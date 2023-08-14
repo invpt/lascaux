@@ -4,14 +4,18 @@
 package dev.lascaux
 
 import java.io.File
+import java.io.FileOutputStream
 import java.io.PrintStream
 import java.util.jar.JarFile
 import java.nio.file.FileSystems
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.Files
 import java.nio.file.OpenOption
 import java.nio.file.StandardOpenOption
 import java.net.URI
+
+import kotlinx.coroutines.runBlocking
 
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
@@ -44,53 +48,90 @@ import org.eclipse.aether.graph.DependencyNode
 import org.eclipse.aether.graph.DependencyFilter
 import org.eclipse.aether.repository.LocalRepository
 
+import org.http4k.client.ApacheClient
+import org.http4k.core.Request
+import org.http4k.core.Method
+
 public class LascauxPlugin : JavaPlugin() {
+    val ktHome = Paths.get(dataFolder.path, "internal").toAbsolutePath()
+
     override fun onEnable() {
-        val dataFolderPath = getDataFolder().path
+        retrieveDeps()
+
+        val jarPath = Paths.get(dataFolder.path, "plugin.jar").toAbsolutePath()
+        doCompile(jarPath)
+        addPluginYml(jarPath)
+
+        val pl = Bukkit.getPluginManager().loadPlugin(File(jarPath.toString()))
+        Bukkit.getPluginManager().enablePlugin(pl!!)
+    }
+
+    fun retrieveDeps() {
+        // Make sure we have all the requisite dependencies
+        val requiredDeps = mapOf(
+            "kotlin-reflect.jar" to "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-reflect/1.9.0/kotlin-reflect-1.9.0.jar",
+            "kotlin-script-runtime.jar" to "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-script-runtime/1.9.0/kotlin-script-runtime-1.9.0.jar",
+            "kotlin-stdlib.jar" to "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.9.0/kotlin-stdlib-1.9.0.jar",
+            "spigot-api.jar" to "https://hub.spigotmc.org/nexus/service/local/repositories/snapshots/content/org/spigotmc/spigot-api/1.20-R0.1-SNAPSHOT/spigot-api-1.20-R0.1-20230612.113428-32.jar"
+        )
+
+        File(ktHome.toString(), "lib").mkdirs()
+        val client = ApacheClient()
+        for ((dep, url) in requiredDeps) {
+            val file = File(Paths.get(ktHome.toString(), "lib", dep).toString())
+            if (!file.exists()) {
+                runBlocking {
+                    val req = Request(Method.GET, url)
+                    val jar = client(req).body.stream
+                    
+                    logger.info("${file.name} not found; downloading it...")
+                    FileOutputStream(file).use { out ->
+                        val buf = ByteArray(1024)
+                        while (true) {
+                            val size = jar.read(buf)
+                            if (size <= 0) {
+                                break
+                            }
+
+                            out.write(buf, 0, size)
+                        }
+                    }
+                    logger.info("Successfully downloaded ${file.name}")
+                }
+            }
+        }
+    }
+
+    fun doCompile(jarPath: Path) {
+        // find source files
+        val srcFiles = File(dataFolder.path)
+            .listFiles { _: File, name: String -> name.endsWith(".kt") }
+            .toList()
+            .map { f -> f.path }
+
         val compiler = K2JVMCompiler()
         val args = K2JVMCompilerArguments().apply {
-            freeArgs = listOf(dataFolderPath + "/code.kt")
-            destination = dataFolderPath + "/code.jar"
-            kotlinHome = dataFolderPath
-            classpath = dataFolderPath + "/kotlin-reflect.jar:" + dataFolderPath + "/kotlin-script-runtime.jar:" + dataFolderPath + "/kotlin-stdlib.jar:" + dataFolderPath + "/spigot-api.jar"
-            noStdlib = true
+            freeArgs = srcFiles
+            destination = jarPath.toString()
+            kotlinHome = ktHome.toString()
+            classpath = Paths.get(ktHome.toString(), "lib", "spigot-api.jar").toString()
         }
         
         val errorPs = PrintStream(System.err)
         compiler.execImpl(PrintingMessageCollector(errorPs, MessageRenderer.PLAIN_RELATIVE_PATHS, args.verbose), Services.EMPTY, args)
+    }
 
-        val fs = FileSystems.newFileSystem(URI.create("jar:file:" + Paths.get(dataFolderPath).toAbsolutePath().toString() + "/code.jar"), mapOf<String, String>())
-        fs.use {
-            Files.write(fs.getPath("/plugin.yml"), """
-                main: testplugin.TestPlugin
-                name: TestPlugin
-                version: 1.0
-            """.trimMargin().toByteArray(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
-        }
-
-        val pl = Bukkit.getPluginManager().loadPlugin(File(dataFolderPath + "/code.jar"))
-        Bukkit.getPluginManager().enablePlugin(pl!!)
-
-        resolveDependencies()
+    fun addPluginYml(jarPath: Path) {
+        FileSystems
+            .newFileSystem(URI.create("jar:file:$jarPath"), mapOf<String, String>())
+            .use { fs ->
+                Files.write(fs.getPath("/plugin.yml"), """
+                    main: dev.lascaux.compiled.Plugin
+                    name: LascauxCompiledPlugin
+                    version: 1.0
+                    api-version: '1.20'
+                """.trimMargin().toByteArray(), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+            }
     }
 }
 
-fun resolveDependencies(): List<File> {
-    val system = RepositorySystemSupplier().get()
-
-    val session = DefaultRepositorySystemSession().setSystemProperties(System.getProperties())
-    session.localRepositoryManager = system.newLocalRepositoryManager(session, LocalRepository("./repo"))
-
-    val remoteRepo = RemoteRepository.Builder("central", "default", "https://repo1.maven.org/maven2").build()
-
-    val artifact = DefaultArtifact("com.google.code.gson:gson:2.10.1")
-
-    val collectRequest = CollectRequest().setRoot(Dependency(artifact, "compile")).addRepository(remoteRepo)
-    val dependencyRequest = DependencyRequest(collectRequest) { node, parents ->
-        node.dependency.scope == "compile" && parents.map { p -> p.dependency.scope == "compile" }.fold(true) { a, b -> a && b }
-    }
-
-    val dependencyResult = system.resolveDependencies(session, dependencyRequest)
-
-    return dependencyResult.artifactResults.map { it.artifact.file }
-}
